@@ -5,8 +5,11 @@ A terminal-based research tool for running **iOS 16.1 (20B82)** on the
 the ported kernel, deploys an iPad-based root filesystem and Cryptex contents,
 and applies the compatibility files used by the development device.
 
-**macOS is required. Tested only on macOS 26.4.1 running on an Apple Silicon
-Mac. Intel/x86 Macs and Hackintosh systems have not been tested.**
+**macOS is required on both Apple Silicon (arm64) and Intel (x86_64).**
+Apple Silicon uses the project-bundled ``Darwin/`` Mach-O tools; Intel
+macOS resolves host-native tools from PATH (Homebrew). Tested on the
+Apple Silicon configuration; Intel/Hackintosh builds need x86_64 tool
+builds for the SSHRD boot-chain utilities.
 
 > **Highly experimental. For personal research only, not daily use.**
 > Do not store sensitive personal information, important accounts or irreplaceable
@@ -62,7 +65,7 @@ See [release preparation](docs/RELEASING.md) for remaining release qualification
 | Initial SSHRD | iPhone 7 iOS 15.6 / 19G71 components, fetched automatically |
 | Installer SSHRD | iOS 16.1 / 20B82, using D10 bootloaders and DeviceTree |
 | Target system volume | **/dev/disk1s8**, mounted as **/mnt8** in SSHRD |
-| Host | **macOS required**; tested only on **macOS 26.4.1 / Apple Silicon**. Intel/x86 Macs and Hackintosh systems are untested |
+| Host | **macOS required**: Apple Silicon (arm64) uses the bundled Darwin/ tools; Intel (x86_64 / Hackintosh) resolves tools from PATH (Homebrew) |
 | Boot method | Computer-assisted DFU boot **after every restart or power loss** |
 
 GSM models and iPhone 7 Plus are not supported by this workflow. Other firmware
@@ -148,37 +151,40 @@ USB-A-to-Lightning cable, is acceptable. If you are unsure which stages can use
 USB-C and which cannot, **keep using the reliable USB-A connection throughout
 the entire procedure**.
 
-- **macOS is required.** The only tested host configuration is **macOS 26.4.1
-  on an Apple Silicon Mac**. Intel/x86 Macs, Hackintosh systems and other macOS
-  versions have not been tested; compatibility is not established.
+- **macOS is required** on Apple Silicon (arm64) or Intel (x86_64).
+
+  - **Apple Silicon:** uses the project-bundled ``Darwin/`` Mach-O tools
+    (``img4``, ``irecovery``, ``gaster``, ``iBoot64Patcher``, ``ld64.lld``,
+    ``libLLVM``) and Xcode ``xcrun`` for ARM64 helper compilation.
+  - **Intel (x86_64, e.g. Hackintosh):** resolves host-native tools from
+    PATH instead of the ARM bundle. Install via Homebrew:
+
+    ```sh
+    brew install libimobiledevice libplist libusbmuxd gnu-tar openssh curl
+    brew install llvm   # provides ld.lld for helper linking
+    ```
+
+    SSHRD-specific boot tools (``gaster``, ``iBoot64Patcher``,
+    ``KPlooshFinder``, ``kerneldiff``) are not in Homebrew; build them from
+    source for x86_64 or run on an Apple Silicon Mac.
 - Python **3.10+** and a reliable USB data cable.
-- Full Xcode with the iPhoneOS SDK, plus the accepted `ld64.lld` linker/toolchain.
-  Exact kernel reconstruction is sensitive to compiler output; the recorded
-  environment is in [toolchain-reference.json](profiles/toolchain-reference.json).
+- Full Xcode with the iPhoneOS SDK, plus a host linker. Exact kernel
+  reconstruction is sensitive to compiler output; the recorded environment
+  is in [toolchain-reference.json](profiles/toolchain-reference.json).
 - Enough free host storage for two full IPSWs, extracted images, temporary DMGs,
   kernel checkpoints and output bundles. Plan for tens of gigabytes; a universal
   peak-space minimum has not been established.
 - Enough free device storage for the additional rootfs and installation staging.
-- Host tools use the project-local `Darwin/` directory. Most are included;
-  four upstream-only tools are downloaded automatically on first use:
-
-```text
-irecovery       gaster          img4             img4tool
-iBoot64Patcher  KPlooshFinder   Kernel64Patcher3 kerneldiff
-gtar            iproxy          sshpass          pzb
-ld64.lld
-```
-
-macOS `hdiutil`, `ssh`, `scp`, `curl` and `codesign` are also used. The Python CLI
-uses the standard library. The AssistiveTouch libimobiledevice/libplist libraries
-and their non-system dependencies are bundled under `Darwin/lib/lockdown/`.
-A separate Homebrew installation is not required. The linker uses project-local
-libraries; its large LLVM library is stored compressed and unpacked automatically
-on first use (including `doctor`). Xcode and its iPhoneOS SDK are not bundled.
+- On Apple Silicon, host tools use the project-local ``Darwin/`` directory.
+  On Intel macOS they resolve from PATH (Homebrew).
+- macOS ``hdiutil``, ``ssh``, ``scp``, ``curl`` and ``codesign`` are also used.
+  The Python CLI uses the standard library. The AssistiveTouch
+  libimobiledevice/libplist libraries are bundled under ``Darwin/lib/lockdown/``.
+  Xcode and its iPhoneOS SDK are not bundled.
 
 See [resources/README.md](resources/README.md) and
 [Darwin/README.md](Darwin/README.md) for the resource layout and notices.
-The current bundle targets Apple Silicon; other host architectures are untested.
+The bundled tools target Apple Silicon; Intel tool builds are untested.
 
 From the project directory, run:
 
