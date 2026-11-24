@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import shutil
 import subprocess
 import tempfile
@@ -22,6 +23,10 @@ class PortError(Exception):
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise PortError(message)
+
+
+def host_arch() -> str:
+    return platform.machine()
 
 
 def command_display(command, private):
@@ -85,6 +90,7 @@ class Project:
         self.root = root.resolve()
         self.work = self.root / "work"
         self.output = self.root / "output"
+        self.host_arch = host_arch()
         self.profile = load_json(self.root / "profiles/d10-20b82.json")
         self.sources = load_json(self.root / "profiles/sources.lock.json")["sources"]
         # Configuration is fixed by the bundled profiles. Legacy local.json
@@ -110,27 +116,46 @@ class Project:
 
     def tool(self, name: str) -> str:
         from .dependencies import dependency
-        fetched = dependency(self, 'Darwin/' + name)
-        if fetched is not None:
-            return str(fetched)
-        candidate = self.root / 'Darwin' / name
-        if candidate.exists():
-            require(candidate.is_file() and os.access(candidate, os.X_OK), f"Tool is not executable: {candidate}")
-            # Preserve the executable name: ld64.lld selects its mode from argv[0].
-            return str(candidate.absolute())
+
+        # On Apple Silicon (arm64) use the project-bundled Darwin/ Mach-O tools,
+        # which are the tested configuration. On Intel macOS (x86_64) the ARM
+        # bundle cannot execute, so resolve host-native tools from PATH
+        # (Homebrew) instead.
+        if platform.system() == "Darwin" and self.host_arch == "arm64":
+            fetched = dependency(self, 'Darwin/' + name)
+            if fetched is not None:
+                return str(fetched)
+            candidate = self.root / 'Darwin' / name
+            if candidate.exists():
+                require(candidate.is_file() and os.access(candidate, os.X_OK),
+                        f"Tool is not executable: {candidate}")
+                # Preserve the executable name: ld64.lld selects its mode from argv[0].
+                return str(candidate.absolute())
         found = shutil.which(name)
-        require(bool(found), f"Missing tool '{name}'. Restore the bundled Darwin/ directory or install it in PATH.")
+        require(bool(found),
+                f"Missing tool '{name}'. On Apple Silicon restore the bundled "
+                f"Darwin/ directory; on Intel macOS install it via Homebrew "
+                f"(e.g. brew install libimobiledevice gnu-tar openssh curl).")
         return found
 
     def linker(self) -> str:
-        bundled = self.root / 'Darwin/ld64.lld'
-        if bundled.exists():
-            require(bundled.is_file() and os.access(bundled, os.X_OK), f'Linker is not executable: {bundled}')
-            from .host_runtime import prepare_linker
-            prepare_linker(self)
-            return str(bundled.absolute())
-        found = shutil.which('ld64.lld')
-        require(bool(found), 'Missing ld64.lld. Restore the bundled Darwin/ directory or install it in PATH.')
+        if platform.system() == "Darwin" and self.host_arch == "arm64":
+            # Apple Silicon: use the bundled ld64.lld Mach-O (tested).
+            bundled = self.root / 'Darwin/ld64.lld'
+            if bundled.exists():
+                require(bundled.is_file() and os.access(bundled, os.X_OK),
+                        f'Linker is not executable: {bundled}')
+                from .host_runtime import prepare_linker
+                prepare_linker(self)
+                return str(bundled.absolute())
+            found = shutil.which('ld64.lld')
+            require(bool(found), 'Missing ld64.lld. Restore the bundled Darwin/ directory or install it in PATH.')
+            return found
+        # Intel macOS: LLD ships as ld.lld / ld64.lld on PATH (brew install llvm).
+        found = shutil.which('ld.lld') or shutil.which('ld64.lld')
+        require(bool(found),
+                'Missing host linker (ld.lld / ld64.lld). On Intel macOS install '
+                'llvm via Homebrew (brew install llvm).')
         return found
 
     def run(self, arguments, *, timeout=180, private=False, env=None, cwd=None, input=None, label=None, live=False) -> subprocess.CompletedProcess:
